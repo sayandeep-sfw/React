@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>React Playground</title>
+</head>
+<body>
+  <div class="js-container"></div>
+
+  <!-- Libraries -->
+  <script src="https://unpkg.com/dayjs@1.11.10/dayjs.min.js"></script>
+  <script src="https://unpkg.com/supersimpledev/react.js"></script>
+  <script src="https://unpkg.com/supersimpledev/react-dom.js"></script>
+  <script src="https://unpkg.com/supersimpledev/babel.js"></script>
+
+  <!-- React App -->
+  <script type="text/babel">
+
+    function ProductDetails({productName, price, DiscountedPrice}){
+      const productPrice = !DiscountedPrice? <p>{price} $</p> : <><p><del>{price}</del> $</p> <p>Discount : {DiscountedPrice}</p></>;
+      return(
+        <div>
+        <p>{productName}</p>
+        {/*{!DiscountedPrice && <p>{price} $</p>}
+        {DiscountedPrice && <p><del>{price}</del> $</p>} */}
+        {productPrice}
+        <button>Add to cart</button>
+        </div>
+      )
+    }
+
+    function App() {
+      return (
+        <>
+          <ProductDetails productName="Cotton Socks" price="10.90" DiscountedPrice="5.30"/>
+          <ProductDetails productName="Tennis ball" price="7.00"/>
+          <ProductDetails productName="Plain T-shirt" price="8.50"/>
+        </>
+      );
+    }
+
+    const container = document.querySelector('.js-container');
+    ReactDOM.createRoot(container).render(<App />);
+  </script>
+</body>
+</html>

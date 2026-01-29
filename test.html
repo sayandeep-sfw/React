@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+<title>Vision Simulator — Diopter Effects</title>
+<style>
+  :root{
+    --accent: #197755;
+    --bg: #0f1720;
+    --panel: #0b1020;
+    --ui-text: #e6eef6;
+  }
+  html,body{height:100%; margin:0; background:radial-gradient(circle at 10% 10%, #071018 0%, #06111a 40%, #041018 100%);}
+  .app {
+    min-height:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:12px;
+    box-sizing:border-box;
+    color:var(--ui-text);
+    font-family: Inter, Roboto, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial;
+  }
+  .card{
+    width:100%;
+    max-width:920px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:12px;
+    box-shadow: 0 10px 30px rgba(2,6,23,0.6);
+    overflow:hidden;
+    display:flex;
+    gap:12px;
+    padding:12px;
+    flex-direction:column;
+  }
+  .viewer {
+    position:relative;
+    width:100%;
+    aspect-ratio: 16/9;
+    background:#000;
+    border-radius:8px;
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  video{ display:none; } /* hidden source */
+  canvas{
+    width:100%;
+    height:100%;
+    display:block;
+    object-fit:cover;
+    background:#000;
+  }
+
+  .toolbar{
+    display:flex;
+    gap:8px;
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .controls{
+    display:flex;
+    gap:8px;
+    align-items:center;
+    width:100%;
+  }
+  .presets{display:flex; gap:6px;}
+  button{
+    background:var(--panel);
+    color:var(--ui-text);
+    border:1px solid rgba(255,255,255,0.04);
+    padding:8px 10px;
+    border-radius:8px;
+    cursor:pointer;
+    font-weight:600;
+  }
+  .primary{
+    background:var(--accent);
+    border-color: rgba(0,0,0,0.2);
+  }
+  .small{padding:6px 8px; font-size:14px}
+  .row{display:flex; gap:8px; align-items:center;}
+  .muted{opacity:0.8; font-size:13px}
+  input[type="range"]{width:260px;}
+  .status{font-size:13px; color:#bcd; margin-left:auto}
+  .footer{display:flex; gap:8px; align-items:center; justify-content:space-between; margin-top:8px; flex-wrap:wrap;}
+  label{display:flex; gap:6px; align-items:center; font-size:14px}
+  .toggle{cursor:pointer; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.04)}
+  .note{font-size:13px; color:#9fb; opacity:0.9}
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="card">
+      <div class="viewer" id="viewer">
+        <video id="camera" playsinline autoplay muted></video>
+        <canvas id="canvas"></canvas>
+      </div>
+
+      <div class="toolbar">
+        <div class="controls">
+          <div class="row presets">
+            <button class="small" data-d="-1">-1.0D</button>
+            <button class="small" data-d="-2">-2.0D</button>
+            <button class="small" data-d="-3.5">-3.5D</button>
+            <button class="small" data-d="-5.5">-5.5D</button>
+            <button class="small" data-d="0">plano</button>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px; margin-left:10px;">
+            <label class="muted">Diopter</label>
+            <input id="diopterRange" type="range" min="-8" max="0" step="0.1" value="-1">
+            <div id="diopterValue" style="min-width:56px; text-align:center;">-1.0D</div>
+          </div>
+
+          <div style="margin-left:8px; display:flex; gap:6px;">
+            <button id="toggleCam" class="small">Use Back Camera</button>
+            <button id="stopBtn" class="small">Stop</button>
+          </div>
+
+          <div class="status" id="status">Ready</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <div class="row">
+          <label><input type="checkbox" id="chromaticToggle"> Chromatic aberration</label>
+          <label style="margin-left:8px;"><input type="checkbox" id="vignetteToggle" checked> Vignette</label>
+        </div>
+        <div class="note">This is an approximation. Use the slider or presets to simulate different myopic strengths. Tap the viewer to switch focus mode.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(async function(){
+  const video = document.getElementById('camera');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const range = document.getElementById('diopterRange');
+  const diopterValue = document.getElementById('diopterValue');
+  const status = document.getElementById('status');
+  const toggleCam = document.getElementById('toggleCam');
+  const stopBtn = document.getElementById('stopBtn');
+  const chromaCheckbox = document.getElementById('chromaticToggle');
+  const vignetteCheckbox = document.getElementById('vignetteToggle');
+  const presets = document.querySelectorAll('[data-d]');
+
+  let stream = null;
+  let usingBack = false;
+  let raf = null;
+  let lastWidth=0, lastHeight=0;
+
+  // heuristic multiplier: diopter -> blur px
+  // adjust multiplier to taste for your device.
+  let blurMultiplier = 3.5;
+
+  function diopterToBlurPx(d) {
+    // d is negative for myopia (blurrier for distance). Map absolute diopter to px.
+    // This is a heuristic: increase or decrease blurMultiplier to calibrate.
+    return Math.max(0, Math.abs(d) * blurMultiplier);
+  }
+
+  async function startCamera() {
+    stopStream();
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: usingBack ? { exact: "environment" } : "user",
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      // If exact facingMode didn't work, fall back without exact
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({video: true, audio:false});
+      } catch (err2) {
+        status.textContent = 'Camera permission required / not available';
+        console.error(err2);
+        return;
+      }
+    }
+    video.srcObject = stream;
+    await video.play();
+    status.textContent = 'Camera running';
+    resizeCanvas();
+    startDrawLoop();
+  }
+
+  function stopStream(){
+    if(stream){
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    if(raf) {
+      cancelAnimationFrame(raf);
+      raf = null;
+    }
+    status.textContent = 'Stopped';
+  }
+
+  function resizeCanvas(){
+    // set canvas resolution to match video source pixel ratio
+    const rect = video.getBoundingClientRect();
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const w = Math.floor(rect.width * devicePixelRatio);
+    const h = Math.floor(rect.height * devicePixelRatio);
+    if (w !== lastWidth || h !== lastHeight) {
+      canvas.width = w;
+      canvas.height = h;
+      lastWidth = w;
+      lastHeight = h;
+    }
+  }
+
+  function drawFrame(){
+    if (!video || video.readyState < 2) {
+      raf = requestAnimationFrame(drawFrame);
+      return;
+    }
+    resizeCanvas();
+
+    // draw into an offscreen canvas at full resolution
+    const w = canvas.width;
+    const h = canvas.height;
+    const d = parseFloat(range.value);
+
+    // Use ctx.filter for GPU-accelerated blur where available
+    const blurPx = diopterToBlurPx(d);
+
+    // Clear
+    ctx.clearRect(0,0,w,h);
+
+    if (chromaCheckbox.checked) {
+      // Chromatic aberration approximation: draw three color channels with slight offsets
+      // 1) Red, shifted left/up
+      ctx.save();
+      ctx.filter = `blur(${blurPx}px)`;
+      ctx.globalCompositeOperation = 'screen';
+      // draw red channel
+      ctx.drawImage(video, -1.2 * blurPx, -0.6 * blurPx, w + 2.4*blurPx, h + 1.2*blurPx);
+      // tint
+      ctx.fillStyle = 'rgba(255,0,0,0.08)';
+      ctx.fillRect(0,0,w,h);
+      ctx.restore();
+
+      // 2) Green center
+      ctx.save();
+      ctx.filter = `blur(${Math.max(0, blurPx*0.9)}px)`;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.drawImage(video, 0, 0, w, h);
+      ctx.fillStyle = 'rgba(0,255,0,0.06)';
+      ctx.fillRect(0,0,w,h);
+      ctx.restore();
+
+      // 3) Blue shifted right/down
+      ctx.save();
+      ctx.filter = `blur(${blurPx}px)`;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.drawImage(video, 1.2 * blurPx, 0.6 * blurPx, w + 2.4*blurPx, h + 1.2*blurPx);
+      ctx.fillStyle = 'rgba(0,0,255,0.06)';
+      ctx.fillRect(0,0,w,h);
+      ctx.restore();
+
+      ctx.globalCompositeOperation = 'source-over';
+    } else {
+      // Simple single-pass blur
+      ctx.save();
+      ctx.filter = `blur(${blurPx}px)`;
+      ctx.drawImage(video, 0, 0, w, h);
+      ctx.restore();
+    }
+
+    // optional vignette
+    if (vignetteCheckbox.checked) {
+      const grad = ctx.createRadialGradient(w/2, h/2, Math.min(w,h)*0.2, w/2, h/2, Math.max(w,h)*0.7);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.35)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0,0,w,h);
+    }
+
+    // small HUD text
+    ctx.save();
+    ctx.resetTransform && ctx.resetTransform();
+    ctx.scale(1 / (window.devicePixelRatio || 1), 1 / (window.devicePixelRatio || 1));
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = '12px Inter, Roboto, Arial';
+    ctx.fillText(`${d.toFixed(1)} D  → blur ${Math.round(blurPx)}px (heuristic)`, 10, 16);
+    ctx.restore();
+
+    raf = requestAnimationFrame(drawFrame);
+  }
+
+  function startDrawLoop(){
+    if(!raf) raf = requestAnimationFrame(drawFrame);
+  }
+
+  // UI handlers
+  range.addEventListener('input', () => {
+    diopterValue.textContent = `${parseFloat(range.value).toFixed(1)}D`;
+  });
+
+  presets.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = parseFloat(btn.dataset.d);
+      range.value = d;
+      diopterValue.textContent = `${d.toFixed(1)}D`;
+    });
+  });
+
+  toggleCam.addEventListener('click', async () => {
+    usingBack = !usingBack;
+    toggleCam.textContent = usingBack ? 'Use Front Camera' : 'Use Back Camera';
+    status.textContent = 'Switching camera...';
+    await startCamera();
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopStream();
+  });
+
+  // Tap viewer to toggle vignette as a quick interaction
+  document.getElementById('viewer').addEventListener('click', () => {
+    vignetteCheckbox.checked = !vignetteCheckbox.checked;
+  });
+
+  // initial start
+  await startCamera();
+
+  // handle page hide/unload
+  window.addEventListener('beforeunload', stopStream);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      // optionally stop camera to save battery
+      // stopStream();
+    }
+  });
+
+  // small calibration UI: allow multiplier tweak via console if desired
+  window.__visionSim = {
+    setMultiplier: (m) => { blurMultiplier = m; console.log('blurMultiplier set to', m); },
+    stop: stopStream,
+    start: startCamera
+  };
+})();
+</script>
+</body>
+</html>

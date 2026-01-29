@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>React Playground</title>
+</head>
+<body>
+  <div class="js-container"></div>
+
+  <!-- Libraries -->
+  <script src="https://unpkg.com/dayjs@1.11.10/dayjs.min.js"></script>
+  <script src="https://unpkg.com/supersimpledev/react.js"></script>
+  <script src="https://unpkg.com/supersimpledev/react-dom.js"></script>
+  <script src="https://unpkg.com/supersimpledev/babel.js"></script>
+
+  <!-- React App -->
+  <script type="text/babel">
+    function App() {
+      const [text,setText]=React.useState('');
+      function textGeneration(event){
+        setText(event.target.value)
+      }
+      function reset(){
+        setText('');
+      }
+      function example(){
+        setText('Hello example.txt')
+      }
+      return (
+        <>
+          <input placeholder="Enter text" onChange={textGeneration} value={text}/>
+          <p>{text}</p>
+          <button onClick={reset}>Reset</button>
+          <button onClick={example}>Example</button>
+        </>
+      );
+    }
+
+    const container = document.querySelector('.js-container');
+    ReactDOM.createRoot(container).render(<App />);
+  </script>
+</body>
+</html>
