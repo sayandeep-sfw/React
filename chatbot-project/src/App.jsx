@@ -13,6 +13,7 @@ function App(){
           Chatbot.addResponses({
             'hi':'Hello how are you?',
             'fine':'Glad to hear that! How can i help you today? currently i can Flip a coin, Display todays Date',
+            'good':'Me 2 good'
           })
         }, []);
         useEffect(() => {
