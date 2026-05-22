@@ -51,7 +51,7 @@ export function ChatInput({ chatMessages, setChatMessages }) {
 
     try {
 
-      const response = await fetch('http://Chatbot-backend-env.eba-rjxqphfd.ap-south-1.elasticbeanstalk.com/chat', {
+      const response = await fetch('http://localhost:3000/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
